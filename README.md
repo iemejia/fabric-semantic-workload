@@ -17,7 +17,10 @@ semantic models**, and (later) to **share and import** them.
   - Fetch a semantic model definition via the Fabric REST API `getDefinition` (TMSL/TMDL).
   - Parse the model metadata into a normalized object graph.
   - Run a best-practices rule engine and emit suggestions (console / JSON / Markdown).
-- [ ] **Milestone 2 — Wrap analyzer into a Fabric workload** (Extensibility Toolkit).
+- [x] **Milestone 2 — Reusable engine + workload UI**
+  - Browser-safe engine API (`src/index.ts`) with zero runtime dependencies.
+  - React (Vite) UI that runs the analyzer entirely client-side (`web/`).
+  - Integration guide to embed the engine in a Fabric Extensibility Toolkit item.
 - [ ] **Milestone 3 — Share / import** semantic models.
 
 ## Milestone 1: the analyzer
@@ -102,3 +105,36 @@ The rule engine operates on a **format-agnostic normalized model**, so the same 
 whether the definition came from TMSL (`model.bim` JSON), TMDL (`definition/*.tmdl`), a live
 Fabric workspace, or a local folder. This engine is designed to be reused inside the Fabric
 workload UI in Milestone 2.
+
+## Milestone 2: reusable engine + workload UI
+
+The analysis engine is exposed as a **browser-safe module** (`src/index.ts`) with zero runtime
+dependencies — the same `analyze()` runs in Node (CLI), the browser (web UI), and a Fabric
+workload item.
+
+### Web UI (playground)
+
+A React + Vite app that runs the analyzer entirely in the browser — upload or paste a
+`model.bim`, or load the bundled sample, and explore findings interactively.
+
+```bash
+npm run web:dev       # start the dev server (http://localhost:5173)
+npm run web:build     # production build to dist-web/
+```
+
+### Embedding in a Fabric workload
+
+See [docs/fabric-workload-integration.md](docs/fabric-workload-integration.md) for a step-by-step
+guide that maps the engine onto the
+[Fabric Extensibility Toolkit](https://github.com/microsoft/fabric-extensibility-toolkit) item
+pattern (fetching the model via the toolkit's `ItemClient.getItemDefinitionWithPolling`, then
+feeding the parts to `loadModelFromParts` + `analyze`).
+
+### Layout
+
+```
+src/         engine + Node CLI (see architecture above)
+web/         React (Vite) workload UI reusing the engine
+docs/        Fabric workload integration guide
+samples/     example semantic model definitions
+```
