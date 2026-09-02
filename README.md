@@ -13,13 +13,87 @@ semantic models**, and (later) to **share and import** them.
 
 ## Roadmap
 
-- [ ] **Milestone 1 — Analyzer (standalone TS prototype)**
-  - Fetch a semantic model definition via the Fabric REST API `getDefinition` (TMDL/TMSL).
+- [x] **Milestone 1 — Analyzer (standalone TS prototype)**
+  - Fetch a semantic model definition via the Fabric REST API `getDefinition` (TMSL/TMDL).
   - Parse the model metadata into a normalized object graph.
   - Run a best-practices rule engine and emit suggestions (console / JSON / Markdown).
 - [ ] **Milestone 2 — Wrap analyzer into a Fabric workload** (Extensibility Toolkit).
 - [ ] **Milestone 3 — Share / import** semantic models.
 
-## Status
+## Milestone 1: the analyzer
 
-Early scaffolding. See the roadmap above.
+A CLI that loads a semantic model definition, normalizes it, and runs a best-practices
+rule engine against the guidance in the
+[semantic model best practices](https://learn.microsoft.com/en-us/fabric/data-science/semantic-model-best-practices)
+article.
+
+### Install & build
+
+```bash
+npm install
+npm run build      # compile TypeScript to dist/
+npm test           # run the vitest suite
+```
+
+### Usage
+
+Run directly from source with `tsx`, or use the compiled `dist/cli.js`:
+
+```bash
+# Analyze a local TMSL model.bim (no auth required — great for testing)
+npm start -- analyze --file samples/contoso-bad.model.bim --name Contoso
+
+# Analyze a local TMDL / PBIP definition folder
+npm start -- analyze --folder ./MyModel.SemanticModel
+
+# Analyze a live model in Fabric (requires auth — see below)
+npm start -- analyze --workspace <workspaceId> --model <semanticModelId>
+
+# Output formats and filtering
+npm start -- analyze --file samples/contoso-bad.model.bim --output markdown --out report.md
+npm start -- analyze --file samples/contoso-bad.model.bim --output json
+npm start -- analyze --file samples/contoso-bad.model.bim --min-severity warning
+npm start -- analyze --file samples/contoso-bad.model.bim --fail-on error   # CI gate
+```
+
+### Authentication (live models)
+
+The Fabric client acquires a bearer token for `https://api.fabric.microsoft.com/.default`
+in this order (see `.env.example`):
+
+1. `FABRIC_TOKEN` env var / `--token` flag (a raw bearer token).
+2. **Azure CLI** credential — run `az login` first.
+3. **Device code** credential — set `FABRIC_CLIENT_ID` (+ optional `FABRIC_TENANT_ID`).
+
+The caller needs `SemanticModel.ReadWrite.All` or `Item.ReadWrite.All` and read/write
+permission on the model (a `getDefinition` requirement).
+
+### What it checks
+
+| Rule | Category | Detects |
+| --- | --- | --- |
+| `naming/non-descriptive` | naming | Cryptic names like `TR_AMT`, `DIM_GEO_01`, `F_SLS` |
+| `metadata/missing-descriptions` | metadata | AI-visible tables/measures without descriptions |
+| `measures/implicit-measures` | measures | Implicit measures enabled; numeric columns that aggregate |
+| `measures/overlapping` | measures | Duplicate/overlapping measures (e.g. Total Sales vs Revenue) |
+| `dates/ambiguous` | dates | Multiple visible date columns in one table |
+| `performance/auto-date-time` | performance | Auto date/time helper tables |
+| `modeling/relationships` | modeling | Bidirectional, many-to-many, inactive relationships |
+| `modeling/wide-tables` | modeling | Wide/flat (denormalized) tables |
+| `ai-readiness/prep-for-ai` | ai-readiness | Missing AI instructions / verified answers / Q&A |
+
+### Architecture
+
+```
+src/
+├── fabric/     REST getDefinition client + Entra auth
+├── model/      normalized model types + TMSL & TMDL loaders + AI-artifact loader
+├── analyzer/   rule engine + best-practice rules
+├── report/     console / markdown renderers (JSON is built-in)
+└── cli.ts      command-line entry point
+```
+
+The rule engine operates on a **format-agnostic normalized model**, so the same rules run
+whether the definition came from TMSL (`model.bim` JSON), TMDL (`definition/*.tmdl`), a live
+Fabric workspace, or a local folder. This engine is designed to be reused inside the Fabric
+workload UI in Milestone 2.

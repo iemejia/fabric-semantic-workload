@@ -1,0 +1,30 @@
+{
+  "name": "fabric-semantic-model-analyzer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Analyze Microsoft Fabric / Power BI semantic models against best practices",
+  "type": "module",
+  "bin": {
+    "fsma": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "tsx src/cli.ts",
+    "analyze": "tsx src/cli.ts analyze",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.5.0",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.5"
+  },
+  "engines": {
+    "node": ">=18.17"
+  }
+}

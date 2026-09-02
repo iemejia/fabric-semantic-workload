@@ -1,0 +1,87 @@
+{
+  "compatibilityLevel": 1567,
+  "model": {
+    "culture": "en-US",
+    "discourageImplicitMeasures": false,
+    "tables": [
+      {
+        "name": "F_SLS",
+        "columns": [
+          { "name": "SalesKey", "dataType": "int64", "isHidden": true, "isKey": true, "summarizeBy": "none", "sourceColumn": "SalesKey" },
+          { "name": "ProductKey", "dataType": "int64", "isHidden": true, "summarizeBy": "none", "sourceColumn": "ProductKey" },
+          { "name": "GeoKey", "dataType": "int64", "isHidden": true, "summarizeBy": "none", "sourceColumn": "GeoKey" },
+          { "name": "TR_AMT", "dataType": "double", "summarizeBy": "sum", "sourceColumn": "TR_AMT" },
+          { "name": "SLS_QTY", "dataType": "int64", "summarizeBy": "sum", "sourceColumn": "SLS_QTY" },
+          { "name": "OrderDate", "dataType": "dateTime", "summarizeBy": "none", "sourceColumn": "OrderDate" },
+          { "name": "ShipDate", "dataType": "dateTime", "summarizeBy": "none", "sourceColumn": "ShipDate" },
+          { "name": "DueDate", "dataType": "dateTime", "summarizeBy": "none", "sourceColumn": "DueDate" }
+        ],
+        "measures": [
+          { "name": "Total Sales", "expression": "SUM(F_SLS[TR_AMT])", "formatString": "\\$#,##0" },
+          { "name": "Sales Amount", "expression": "SUMX(F_SLS, F_SLS[TR_AMT])" },
+          { "name": "Revenue", "expression": "[Total Sales]" },
+          { "name": "Total Quantity", "expression": "SUM(F_SLS[SLS_QTY])" }
+        ],
+        "partitions": [
+          { "name": "F_SLS", "mode": "import", "source": { "type": "m", "expression": ["let Source = Sql.Database(...) in Source"] } }
+        ]
+      },
+      {
+        "name": "DIM_GEO_01",
+        "columns": [
+          { "name": "GeoKey", "dataType": "int64", "isHidden": true, "isKey": true, "summarizeBy": "none", "sourceColumn": "GeoKey" },
+          { "name": "CountryKey", "dataType": "int64", "isHidden": true, "summarizeBy": "none", "sourceColumn": "CountryKey" },
+          { "name": "City", "dataType": "string", "summarizeBy": "none", "sourceColumn": "City" }
+        ],
+        "measures": [],
+        "partitions": [
+          { "name": "DIM_GEO_01", "mode": "import", "source": { "type": "m", "expression": ["let Source = Sql.Database(...) in Source"] } }
+        ]
+      },
+      {
+        "name": "Country",
+        "columns": [
+          { "name": "CountryKey", "dataType": "int64", "isHidden": true, "isKey": true, "summarizeBy": "none", "sourceColumn": "CountryKey" },
+          { "name": "Country Name", "dataType": "string", "description": "Country display name.", "summarizeBy": "none", "sourceColumn": "CountryName" }
+        ],
+        "measures": [],
+        "partitions": [
+          { "name": "Country", "mode": "import", "source": { "type": "m", "expression": ["let Source = Sql.Database(...) in Source"] } }
+        ]
+      },
+      {
+        "name": "Product",
+        "description": "Products sold by the company.",
+        "columns": [
+          { "name": "ProductKey", "dataType": "int64", "isHidden": true, "isKey": true, "summarizeBy": "none", "sourceColumn": "ProductKey" },
+          { "name": "Product Name", "dataType": "string", "description": "The product's display name.", "summarizeBy": "none", "sourceColumn": "ProductName" },
+          { "name": "List Price", "dataType": "decimal", "description": "Catalog list price.", "summarizeBy": "sum", "sourceColumn": "ListPrice" }
+        ],
+        "measures": [
+          { "name": "Product Count", "expression": "COUNTROWS(Product)", "description": "Number of products." }
+        ],
+        "partitions": [
+          { "name": "Product", "mode": "import", "source": { "type": "m", "expression": ["let Source = Sql.Database(...) in Source"] } }
+        ]
+      },
+      {
+        "name": "LocalDateTable_9f2a1c3d",
+        "columns": [
+          { "name": "Date", "dataType": "dateTime", "isHidden": true, "summarizeBy": "none", "sourceColumn": "[Date]" },
+          { "name": "Year", "dataType": "int64", "isHidden": true, "summarizeBy": "none", "sourceColumn": "[Year]" }
+        ],
+        "measures": [],
+        "partitions": [
+          { "name": "LocalDateTable_9f2a1c3d", "mode": "import", "source": { "type": "calculated", "expression": "Calendar(...)" } }
+        ]
+      }
+    ],
+    "relationships": [
+      { "name": "r1", "fromTable": "F_SLS", "fromColumn": "ProductKey", "toTable": "Product", "toColumn": "ProductKey" },
+      { "name": "r2", "fromTable": "F_SLS", "fromColumn": "GeoKey", "toTable": "DIM_GEO_01", "toColumn": "GeoKey", "crossFilteringBehavior": "bothDirections" },
+      { "name": "r3", "fromTable": "DIM_GEO_01", "fromColumn": "CountryKey", "toTable": "Country", "toColumn": "CountryKey" },
+      { "name": "r4", "fromTable": "F_SLS", "fromColumn": "OrderDate", "toTable": "Product", "toColumn": "ProductKey", "isActive": false },
+      { "name": "r5", "fromTable": "F_SLS", "fromColumn": "SLS_QTY", "toTable": "DIM_GEO_01", "toColumn": "GeoKey", "fromCardinality": "many", "toCardinality": "many" }
+    ]
+  }
+}
