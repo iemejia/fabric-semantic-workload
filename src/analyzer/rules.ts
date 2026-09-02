@@ -4,6 +4,7 @@ import {
   isDateType,
   isNumericType,
 } from "../model/types.js";
+import { extractDependencies } from "./dax.js";
 import type { Finding, Rule } from "./types.js";
 
 type RuleFinding = Omit<Finding, "ruleId" | "title" | "category" | "docUrl">;
@@ -411,6 +412,185 @@ const prepForAi: Rule = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Rule: calculated columns (performance / freshness)
+// ---------------------------------------------------------------------------
+const calculatedColumns: Rule = {
+  id: "performance/calculated-columns",
+  title: "Calculated columns",
+  category: "performance",
+  defaultSeverity: "info",
+  docUrl: DOC_OPTIMIZE,
+  evaluate(model) {
+    const findings: RuleFinding[] = [];
+    for (const t of model.tables) {
+      if (t.isAutoDateTable) continue;
+      for (const c of t.columns) {
+        if (!c.isCalculated) continue;
+        findings.push({
+          severity: "info",
+          target: col(t.name, c.name),
+          message: `Column "${c.name}" is a calculated column, which increases model size and refresh cost.`,
+          recommendation:
+            "Where possible, push the calculation to the source (Power Query / the data source) or use a measure instead.",
+        });
+      }
+    }
+    return findings;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Rule: snowflake dimensions (star-schema hygiene)
+// ---------------------------------------------------------------------------
+const snowflakeDimensions: Rule = {
+  id: "modeling/snowflake",
+  title: "Snowflaked dimensions",
+  category: "modeling",
+  defaultSeverity: "info",
+  docUrl: DOC_BEST_PRACTICES,
+  evaluate(model) {
+    // A snowflake intermediate is a table that is on the "one" side of one
+    // relationship (a dimension) yet also filters into another table (acts as
+    // the "many" side pointing to a further dimension).
+    const asToTable = new Set<string>();
+    const asFromTable = new Set<string>();
+    for (const r of model.relationships) {
+      asToTable.add(r.toTable);
+      asFromTable.add(r.fromTable);
+    }
+    const findings: RuleFinding[] = [];
+    for (const t of model.tables) {
+      if (t.isAutoDateTable) continue;
+      const hasMeasures = t.measures.length > 0;
+      // Facts typically carry measures and are only ever a "from" table.
+      if (asToTable.has(t.name) && asFromTable.has(t.name) && !hasMeasures) {
+        findings.push({
+          severity: "info",
+          target: t.name,
+          message: `Table "${t.name}" appears to be a snowflaked dimension (it both receives and propagates filters).`,
+          recommendation:
+            "Flatten snowflaked dimensions into a single dimension table to keep a clean star schema for DAX.",
+        });
+      }
+    }
+    return findings;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Rule: visible key columns
+// ---------------------------------------------------------------------------
+const visibleKeys: Rule = {
+  id: "metadata/visible-keys",
+  title: "Visible key columns",
+  category: "metadata",
+  defaultSeverity: "info",
+  docUrl: DOC_BEST_PRACTICES,
+  evaluate(model) {
+    const findings: RuleFinding[] = [];
+    for (const t of model.tables) {
+      if (t.isAutoDateTable) continue;
+      for (const c of t.columns) {
+        if (c.isKey && !c.isHidden) {
+          findings.push({
+            severity: "info",
+            target: col(t.name, c.name),
+            message: `Key column "${c.name}" is visible, adding noise and inviting incorrect aggregations.`,
+            recommendation:
+              "Hide surrogate/relationship key columns and exclude them from the AI data schema.",
+          });
+        }
+      }
+    }
+    return findings;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Rule: helper / intermediate measures
+// ---------------------------------------------------------------------------
+const helperMeasures: Rule = {
+  id: "measures/helper-measures",
+  title: "Helper / intermediate measures",
+  category: "measures",
+  defaultSeverity: "info",
+  docUrl: DOC_BEST_PRACTICES,
+  evaluate(model) {
+    const findings: RuleFinding[] = [];
+    for (const t of model.tables) {
+      for (const m of t.measures) {
+        const looksHelper =
+          m.isHidden || m.name.startsWith("_") || (m.displayFolder ?? "").startsWith("_");
+        if (looksHelper) {
+          findings.push({
+            severity: "info",
+            target: measure(t.name, m.name),
+            message: `Measure "${m.name}" looks like a helper/intermediate measure.`,
+            recommendation:
+              "Exclude helper measures from the AI data schema so only real business metrics remain.",
+          });
+        }
+      }
+    }
+    return findings;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Rule: broken DAX references
+// ---------------------------------------------------------------------------
+const brokenReferences: Rule = {
+  id: "measures/broken-references",
+  title: "Broken DAX references",
+  category: "measures",
+  defaultSeverity: "error",
+  docUrl: DOC_BEST_PRACTICES,
+  evaluate(model) {
+    const measureNames = new Set<string>();
+    const columnKeys = new Set<string>();
+    const tableNames = new Set<string>();
+    for (const t of model.tables) {
+      tableNames.add(t.name.toLowerCase());
+      for (const m of t.measures) measureNames.add(m.name.toLowerCase());
+      for (const c of t.columns) columnKeys.add(`${t.name.toLowerCase()}|${c.name.toLowerCase()}`);
+    }
+
+    const findings: RuleFinding[] = [];
+    for (const t of model.tables) {
+      for (const m of t.measures) {
+        const deps = extractDependencies(m.expression);
+        for (const ref of deps.measures) {
+          if (!measureNames.has(ref.toLowerCase())) {
+            findings.push({
+              severity: "error",
+              target: measure(t.name, m.name),
+              message: `Measure "${m.name}" references measure [${ref}], which does not exist in the model.`,
+              recommendation: "Fix or remove the broken reference; broken measures break dependent AI responses.",
+            });
+          }
+        }
+        for (const ref of deps.columns) {
+          // Only flag when we recognize the table but not the column (avoids
+          // false positives from table variables / unresolved lexical matches).
+          if (
+            tableNames.has(ref.table.toLowerCase()) &&
+            !columnKeys.has(`${ref.table.toLowerCase()}|${ref.column.toLowerCase()}`)
+          ) {
+            findings.push({
+              severity: "error",
+              target: measure(t.name, m.name),
+              message: `Measure "${m.name}" references column ${ref.table}[${ref.column}], which does not exist.`,
+              recommendation: "Fix or remove the broken column reference.",
+            });
+          }
+        }
+      }
+    }
+    return findings;
+  },
+};
+
 /** All built-in rules, evaluated in order. */
 export const RULES: Rule[] = [
   nonDescriptiveNaming,
@@ -420,7 +600,12 @@ export const RULES: Rule[] = [
   ambiguousDateFields,
   autoDateTime,
   relationshipHygiene,
+  snowflakeDimensions,
   wideTables,
+  calculatedColumns,
+  visibleKeys,
+  helperMeasures,
+  brokenReferences,
   prepForAi,
 ];
 

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { analyze } from "../src/analyzer/engine.js";
+import { extractDependencies } from "../src/analyzer/dax.js";
 import { isCrypticName } from "../src/analyzer/rules.js";
 import { loadModelFromParts } from "../src/model/load.js";
+import type { SemanticModel } from "../src/model/types.js";
 
 function sample(): string {
   const p = fileURLToPath(new URL("../samples/contoso-bad.model.bim", import.meta.url));
@@ -50,6 +52,10 @@ describe("analyze", () => {
     expect(rules).toContain("dates/ambiguous");
     expect(rules).toContain("performance/auto-date-time");
     expect(rules).toContain("modeling/relationships");
+    expect(rules).toContain("modeling/snowflake");
+    expect(rules).toContain("performance/calculated-columns");
+    expect(rules).toContain("metadata/visible-keys");
+    expect(rules).toContain("measures/helper-measures");
     expect(rules).toContain("ai-readiness/prep-for-ai");
   });
 
@@ -63,5 +69,50 @@ describe("analyze", () => {
   it("respects the minSeverity filter", () => {
     const warnOnly = analyze(model, { minSeverity: "warning" });
     expect(warnOnly.findings.every((f) => f.severity !== "info")).toBe(true);
+  });
+});
+
+describe("extractDependencies", () => {
+  it("separates measure and column references", () => {
+    const deps = extractDependencies("CALCULATE([Total Sales], Sales[Region] = \"West\") + [Tax]");
+    expect(deps.measures).toContain("Total Sales");
+    expect(deps.measures).toContain("Tax");
+    expect(deps.columns).toContainEqual({ table: "Sales", column: "Region" });
+  });
+
+  it("handles quoted table names and ignores string literals", () => {
+    const deps = extractDependencies("SUMX('Order Lines', 'Order Lines'[Qty]) // [NotAMeasure]");
+    expect(deps.columns).toContainEqual({ table: "Order Lines", column: "Qty" });
+    expect(deps.measures).toHaveLength(0);
+  });
+});
+
+describe("broken references", () => {
+  it("flags references to non-existent measures and columns", () => {
+    const brokenModel: SemanticModel = {
+      name: "Broken",
+      tables: [
+        {
+          name: "Sales",
+          isHidden: false,
+          isAutoDateTable: false,
+          isDateTable: false,
+          columns: [
+            { name: "Amount", dataType: "double", isHidden: false, isKey: false, isCalculated: false },
+          ],
+          measures: [
+            { name: "Bad Measure", expression: "[Missing Measure] + Sales[Ghost Column]", isHidden: false },
+          ],
+          partitions: [],
+        },
+      ],
+      relationships: [],
+      ai: { hasVerifiedAnswers: false },
+      sourceFormat: "TMSL",
+    };
+    const res = analyze(brokenModel);
+    const broken = res.findings.filter((f) => f.ruleId === "measures/broken-references");
+    expect(broken.length).toBe(2);
+    expect(res.summary.error).toBeGreaterThanOrEqual(2);
   });
 });
