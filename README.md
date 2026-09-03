@@ -117,10 +117,20 @@ workload item.
 A React + Vite app that runs the analyzer entirely in the browser — upload or paste a
 `model.bim`, or load the bundled sample, and explore findings interactively.
 
+**Live demo:** https://ismaelmejia.com/fabric-semantic-workload/ (auto-deployed to GitHub
+Pages from `main` via `.github/workflows/pages.yml`).
+
 ```bash
 npm run web:dev       # start the dev server (http://localhost:5173)
 npm run web:build     # production build to dist-web/
+# For the GitHub Pages base path:
+PAGES_BASE=/fabric-semantic-workload/ npm run web:build
 ```
+
+This static, backend-free build is exactly what a Fabric **FERemote** workload embeds: point
+the manifest's `FRONTEND_URL` at a static host (GitHub Pages, Azure Static Web Apps, …) and
+Fabric loads it in an iframe. See
+[docs/fabric-workload-integration.md](docs/fabric-workload-integration.md).
 
 ### Embedding in a Fabric workload
 
