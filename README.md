@@ -76,19 +76,25 @@ permission on the model (a `getDefinition` requirement).
 | Rule | Category | Detects |
 | --- | --- | --- |
 | `naming/non-descriptive` | naming | Cryptic names like `TR_AMT`, `DIM_GEO_01`, `F_SLS` |
+| `naming/ambiguity` | naming | Measure/column name clashes; same column name across tables |
 | `metadata/missing-descriptions` | metadata | AI-visible tables/measures without descriptions |
-| `metadata/visible-keys` | metadata | Surrogate/relationship key columns left visible |
+| `metadata/measure-format-string` | metadata | Measures with no format string |
+| `metadata/visible-keys` | metadata | Surrogate/relationship keys left visible |
 | `measures/implicit-measures` | measures | Implicit measures enabled; numeric columns that aggregate |
 | `measures/overlapping` | measures | Duplicate/overlapping measures (e.g. Total Sales vs Revenue) |
 | `measures/helper-measures` | measures | Helper/intermediate measures to exclude from the AI schema |
 | `measures/broken-references` | measures | DAX referencing measures/columns that don't exist |
 | `dates/ambiguous` | dates | Multiple visible date columns in one table |
+| `dates/date-table` | dates | No table marked as a Date table / unmarked date dimension |
 | `performance/auto-date-time` | performance | Auto date/time helper tables |
 | `performance/calculated-columns` | performance | Calculated columns (size/refresh cost) |
 | `modeling/relationships` | modeling | Bidirectional, many-to-many, inactive relationships |
+| `modeling/relationship-integrity` | modeling | Broken relationships; join columns with mismatched types |
 | `modeling/snowflake` | modeling | Snowflaked dimensions that should be flattened |
+| `modeling/unused-columns` | modeling | Hidden columns not referenced anywhere (removable) |
 | `modeling/wide-tables` | modeling | Wide/flat (denormalized) tables |
 | `ai-readiness/prep-for-ai` | ai-readiness | Missing AI instructions / verified answers / Q&A |
+| `ai-readiness/description-coverage` | ai-readiness | % of AI-visible objects with descriptions |
 
 ### Architecture
 

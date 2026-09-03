@@ -56,6 +56,12 @@ describe("analyze", () => {
     expect(rules).toContain("performance/calculated-columns");
     expect(rules).toContain("metadata/visible-keys");
     expect(rules).toContain("measures/helper-measures");
+    expect(rules).toContain("metadata/measure-format-string");
+    expect(rules).toContain("modeling/unused-columns");
+    expect(rules).toContain("dates/date-table");
+    expect(rules).toContain("modeling/relationship-integrity");
+    expect(rules).toContain("naming/ambiguity");
+    expect(rules).toContain("ai-readiness/description-coverage");
     expect(rules).toContain("ai-readiness/prep-for-ai");
   });
 

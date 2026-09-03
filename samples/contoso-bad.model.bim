@@ -12,6 +12,8 @@
           { "name": "GeoKey", "dataType": "int64", "isHidden": true, "summarizeBy": "none", "sourceColumn": "GeoKey" },
           { "name": "TR_AMT", "dataType": "double", "summarizeBy": "sum", "sourceColumn": "TR_AMT" },
           { "name": "SLS_QTY", "dataType": "int64", "summarizeBy": "sum", "sourceColumn": "SLS_QTY" },
+          { "name": "Revenue", "dataType": "double", "summarizeBy": "sum", "sourceColumn": "Revenue" },
+          { "name": "LegacyFlag", "dataType": "boolean", "isHidden": true, "summarizeBy": "none", "sourceColumn": "LegacyFlag" },
           { "name": "OrderDate", "dataType": "dateTime", "summarizeBy": "none", "sourceColumn": "OrderDate" },
           { "name": "ShipDate", "dataType": "dateTime", "summarizeBy": "none", "sourceColumn": "ShipDate" },
           { "name": "DueDate", "dataType": "dateTime", "summarizeBy": "none", "sourceColumn": "DueDate" }
@@ -57,6 +59,7 @@
         "columns": [
           { "name": "ProductKey", "dataType": "int64", "isHidden": true, "isKey": true, "summarizeBy": "none", "sourceColumn": "ProductKey" },
           { "name": "Product Name", "dataType": "string", "description": "The product's display name.", "summarizeBy": "none", "sourceColumn": "ProductName" },
+          { "name": "City", "dataType": "string", "summarizeBy": "none", "sourceColumn": "City" },
           { "name": "List Price", "dataType": "decimal", "description": "Catalog list price.", "summarizeBy": "sum", "sourceColumn": "ListPrice" },
           { "name": "Price Band", "type": "calculated", "dataType": "string", "description": "High/Low price band.", "summarizeBy": "none", "expression": "IF(Product[List Price] > 100, \"High\", \"Low\")" }
         ],

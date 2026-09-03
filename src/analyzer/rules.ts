@@ -1,6 +1,7 @@
 import {
   type SemanticModel,
   type Table,
+  type Column,
   isDateType,
   isNumericType,
 } from "../model/types.js";
@@ -591,6 +592,266 @@ const brokenReferences: Rule = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Rule: measure format strings
+// ---------------------------------------------------------------------------
+const measureFormatString: Rule = {
+  id: "metadata/measure-format-string",
+  title: "Measures without a format string",
+  category: "metadata",
+  defaultSeverity: "info",
+  docUrl: DOC_BEST_PRACTICES,
+  evaluate(model) {
+    const findings: RuleFinding[] = [];
+    for (const t of model.tables) {
+      if (t.isAutoDateTable) continue;
+      for (const m of t.measures) {
+        if (m.isHidden || (m.formatString && m.formatString.trim())) continue;
+        findings.push({
+          severity: "info",
+          target: measure(t.name, m.name),
+          message: `Measure "${m.name}" has no format string.`,
+          recommendation:
+            "Set a format string so values render consistently in reports and AI-generated answers.",
+        });
+      }
+    }
+    return findings;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Model index helpers (shared by the structural rules below)
+// ---------------------------------------------------------------------------
+function key(table: string, column: string): string {
+  return `${table.toLowerCase()}|${column.toLowerCase()}`;
+}
+
+/** Every column referenced by DAX, relationships, or sort-by, keyed lowercase. */
+function collectReferencedColumns(model: SemanticModel): Set<string> {
+  const refs = new Set<string>();
+  for (const t of model.tables) {
+    for (const m of t.measures) {
+      for (const c of extractDependencies(m.expression).columns) refs.add(key(c.table, c.column));
+    }
+    for (const c of t.columns) {
+      if (c.isCalculated) {
+        for (const dep of extractDependencies(c.expression).columns) refs.add(key(dep.table, dep.column));
+      }
+      if (c.sortByColumn) refs.add(key(t.name, c.sortByColumn));
+    }
+  }
+  for (const r of model.relationships) {
+    refs.add(key(r.fromTable, r.fromColumn));
+    refs.add(key(r.toTable, r.toColumn));
+  }
+  return refs;
+}
+
+// ---------------------------------------------------------------------------
+// Rule: unused (hidden + unreferenced) columns
+// ---------------------------------------------------------------------------
+const unusedColumns: Rule = {
+  id: "modeling/unused-columns",
+  title: "Unused columns",
+  category: "modeling",
+  defaultSeverity: "info",
+  docUrl: DOC_OPTIMIZE,
+  evaluate(model) {
+    const refs = collectReferencedColumns(model);
+    const findings: RuleFinding[] = [];
+    for (const t of model.tables) {
+      if (t.isAutoDateTable) continue;
+      for (const c of t.columns) {
+        // High-precision heuristic: hidden (so not a report attribute), not a
+        // key, and not referenced by any DAX/relationship/sort-by.
+        if (c.isHidden && !c.isKey && !refs.has(key(t.name, c.name))) {
+          findings.push({
+            severity: "info",
+            target: col(t.name, c.name),
+            message: `Column "${c.name}" is hidden and not referenced by any measure, relationship, or sort-by.`,
+            recommendation:
+              "If it isn't used elsewhere, remove it to shrink the model and reduce noise for the DAX generation tool.",
+          });
+        }
+      }
+    }
+    return findings;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Rule: date table
+// ---------------------------------------------------------------------------
+const dateTable: Rule = {
+  id: "dates/date-table",
+  title: "Date dimension / mark-as-date-table",
+  category: "dates",
+  defaultSeverity: "warning",
+  docUrl: DOC_BEST_PRACTICES,
+  evaluate(model) {
+    const realTables = model.tables.filter((t) => !t.isAutoDateTable);
+    const hasDateColumns = realTables.some((t) => t.columns.some((c) => isDateType(c.dataType)));
+    const hasMarkedDateTable = realTables.some((t) => t.isDateTable);
+
+    const findings: RuleFinding[] = [];
+    if (hasDateColumns && !hasMarkedDateTable) {
+      findings.push({
+        severity: "warning",
+        target: model.name,
+        message: "The model uses date columns but no table is marked as a Date table.",
+        recommendation:
+          "Create a dedicated Date dimension and mark it as a date table for reliable time intelligence and AI date handling.",
+      });
+    }
+    for (const t of realTables) {
+      if (!t.isDateTable && /\b(date|calendar)\b/i.test(t.name) && t.columns.some((c) => isDateType(c.dataType))) {
+        findings.push({
+          severity: "info",
+          target: t.name,
+          message: `Table "${t.name}" looks like a date dimension but isn't marked as a date table.`,
+          recommendation: "Mark it as a date table so time-intelligence and AI date logic work correctly.",
+        });
+      }
+    }
+    return findings;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Rule: relationship integrity (broken refs + data-type mismatch)
+// ---------------------------------------------------------------------------
+const relationshipIntegrity: Rule = {
+  id: "modeling/relationship-integrity",
+  title: "Relationship integrity",
+  category: "modeling",
+  defaultSeverity: "warning",
+  docUrl: DOC_BEST_PRACTICES,
+  evaluate(model) {
+    const columnIndex = new Map<string, Column>();
+    const tableNames = new Set<string>();
+    for (const t of model.tables) {
+      tableNames.add(t.name.toLowerCase());
+      for (const c of t.columns) columnIndex.set(key(t.name, c.name), c);
+    }
+
+    const findings: RuleFinding[] = [];
+    for (const r of model.relationships) {
+      const label = `${r.fromTable}[${r.fromColumn}] -> ${r.toTable}[${r.toColumn}]`;
+      const fromCol = columnIndex.get(key(r.fromTable, r.fromColumn));
+      const toCol = columnIndex.get(key(r.toTable, r.toColumn));
+
+      if (!tableNames.has(r.fromTable.toLowerCase()) || !tableNames.has(r.toTable.toLowerCase()) || !fromCol || !toCol) {
+        findings.push({
+          severity: "error",
+          target: label,
+          message: `Relationship ${label} references a table or column that doesn't exist.`,
+          recommendation: "Fix or remove the broken relationship.",
+        });
+        continue;
+      }
+      if (fromCol.dataType && toCol.dataType && fromCol.dataType.toLowerCase() !== toCol.dataType.toLowerCase()) {
+        findings.push({
+          severity: "warning",
+          target: label,
+          message: `Relationship ${label} joins columns of different data types (${fromCol.dataType} vs ${toCol.dataType}).`,
+          recommendation: "Use matching data types on both sides of a relationship to avoid subtle join errors.",
+        });
+      }
+    }
+    return findings;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Rule: naming ambiguity (measure vs column, duplicate visible columns)
+// ---------------------------------------------------------------------------
+const namingAmbiguity: Rule = {
+  id: "naming/ambiguity",
+  title: "Ambiguous names",
+  category: "naming",
+  defaultSeverity: "warning",
+  docUrl: DOC_BEST_PRACTICES,
+  evaluate(model) {
+    const measurePaths = new Map<string, string>(); // lower name -> path
+    const columnsByName = new Map<string, { name: string; paths: string[] }>();
+    for (const t of model.tables) {
+      if (t.isAutoDateTable) continue;
+      for (const m of t.measures) {
+        if (!m.isHidden) measurePaths.set(m.name.toLowerCase(), measure(t.name, m.name));
+      }
+      for (const c of t.columns) {
+        if (c.isHidden) continue;
+        const lower = c.name.toLowerCase();
+        const entry = columnsByName.get(lower) ?? { name: c.name, paths: [] };
+        entry.paths.push(col(t.name, c.name));
+        columnsByName.set(lower, entry);
+      }
+    }
+
+    const findings: RuleFinding[] = [];
+    for (const [lower, mpath] of measurePaths) {
+      const clash = columnsByName.get(lower);
+      if (clash) {
+        findings.push({
+          severity: "warning",
+          target: mpath,
+          message: `Measure ${mpath} shares its name with a column (${clash.paths.join(", ")}), creating DAX/AI ambiguity.`,
+          recommendation: "Rename so measures and columns don't collide (e.g. prefix measures or clarify the column).",
+        });
+      }
+    }
+    for (const { name, paths } of columnsByName.values()) {
+      if (paths.length > 1) {
+        findings.push({
+          severity: "info",
+          target: paths[0],
+          message: `Column name "${name}" appears in multiple tables (${paths.join(", ")}), which is ambiguous for natural-language and DAX.`,
+          recommendation: "Use distinct, business-friendly names (e.g. 'Customer City' vs 'Store City').",
+        });
+      }
+    }
+    return findings;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Rule: AI description coverage
+// ---------------------------------------------------------------------------
+const DESCRIPTION_COVERAGE_THRESHOLD = 50;
+const descriptionCoverage: Rule = {
+  id: "ai-readiness/description-coverage",
+  title: "Description coverage",
+  category: "ai-readiness",
+  defaultSeverity: "warning",
+  docUrl: DOC_BEST_PRACTICES,
+  evaluate(model) {
+    let total = 0;
+    let described = 0;
+    const count = (has: boolean) => {
+      total++;
+      if (has) described++;
+    };
+    for (const t of model.tables) {
+      if (t.isAutoDateTable) continue;
+      if (!t.isHidden) count(!!t.description);
+      for (const m of t.measures) if (!m.isHidden) count(!!m.description);
+      for (const c of t.columns) if (!c.isHidden && !c.isKey) count(!!c.description);
+    }
+    if (total === 0) return [];
+    const pct = Math.round((described / total) * 100);
+    return [
+      {
+        severity: pct < DESCRIPTION_COVERAGE_THRESHOLD ? "warning" : "info",
+        target: model.name,
+        message: `${pct}% of AI-visible objects have descriptions (${described}/${total}).`,
+        recommendation:
+          "Add descriptions to tables, columns, and measures so the DAX generation tool understands each object's purpose.",
+      },
+    ];
+  },
+};
+
 /** All built-in rules, evaluated in order. */
 export const RULES: Rule[] = [
   nonDescriptiveNaming,
@@ -606,6 +867,12 @@ export const RULES: Rule[] = [
   visibleKeys,
   helperMeasures,
   brokenReferences,
+  measureFormatString,
+  unusedColumns,
+  dateTable,
+  relationshipIntegrity,
+  namingAmbiguity,
+  descriptionCoverage,
   prepForAi,
 ];
 
