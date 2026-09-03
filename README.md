@@ -132,6 +132,13 @@ the manifest's `FRONTEND_URL` at a static host (GitHub Pages, Azure Static Web A
 Fabric loads it in an iframe. See
 [docs/fabric-workload-integration.md](docs/fabric-workload-integration.md).
 
+When the app detects it's **embedded inside Fabric** (`web/fabric.ts`), it shows a **"Load
+model from Fabric"** action that opens the Data Hub picker, acquires a token from the host,
+fetches the semantic model definition (`getItemDefinition`, TMSL), and analyzes it — no backend,
+no secrets in the browser. Loaded standalone (e.g. on GitHub Pages), it stays the offline
+playground. The Fabric SDK (`@ms-fabric/workload-client`) is lazy-loaded so it only ships when
+actually embedded.
+
 ### Embedding in a Fabric workload
 
 See [docs/fabric-workload-integration.md](docs/fabric-workload-integration.md) for a step-by-step

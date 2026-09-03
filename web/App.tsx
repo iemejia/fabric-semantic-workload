@@ -4,12 +4,15 @@ import {
   loadModelFromParts,
   renderMarkdown,
   type AnalysisResult,
+  type DefinitionPart,
   type Finding,
   type Severity,
 } from "../src/index.js";
+import { isEmbeddedInFabric, loadModelFromFabric } from "./fabric.js";
 import sampleBim from "../samples/contoso-bad.model.bim?raw";
 
 const SEVERITIES: Severity[] = ["error", "warning", "info"];
+const IN_FABRIC = isEmbeddedInFabric();
 
 export function App() {
   const [content, setContent] = useState("");
@@ -18,15 +21,36 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState<Set<Severity>>(new Set(SEVERITIES));
   const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  const runAnalysis = (text: string, name: string) => {
+  const analyzeParts = (parts: DefinitionPart[], name: string) => {
     try {
-      const model = loadModelFromParts([{ path: "model.bim", content: text }], name);
+      const model = loadModelFromParts(parts, name);
       setResult(analyze(model));
       setError(null);
     } catch (err) {
       setResult(null);
       setError((err as Error).message);
+    }
+  };
+
+  const runAnalysis = (text: string, name: string) =>
+    analyzeParts([{ path: "model.bim", content: text }], name);
+
+  const loadFromFabric = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const model = await loadModelFromFabric();
+      if (!model) return; // user cancelled the picker
+      setContent("");
+      setModelName(model.name);
+      analyzeParts(model.parts, model.name);
+    } catch (err) {
+      setResult(null);
+      setError(`Fabric fetch failed: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -86,6 +110,11 @@ export function App() {
 
       <section className="input">
         <div className="toolbar">
+          {IN_FABRIC && (
+            <button className="btn primary" onClick={loadFromFabric} disabled={busy}>
+              {busy ? "Loading from Fabric…" : "Load model from Fabric"}
+            </button>
+          )}
           <label className="btn">
             Upload model.bim
             <input
